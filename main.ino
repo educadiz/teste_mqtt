@@ -31,10 +31,10 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 U8G2_FOR_ADAFRUIT_GFX u8g2Fonts;
 
 // WiFi: Credenciais
-const char* ssid = "**********"; // <- set your SSID here
-const char* password = "**********"; // <- Set your WIFI password here
+const char* ssid = "**********"; // SSID de sua rede WIFI
+const char* password = "**********"; // Senha WIFI
 
-// Dados do MQTT:
+// Dados do MQTT: Aqui vão os tópicos via mqtt tradicional para o broker HIVEMQ
 const char* mqtt_server = "broker.hivemq.com";
 const int mqtt_port = 1883;
 const char* clientID = "cangaco_01";
@@ -45,7 +45,7 @@ const char* topicSolar = "est_01/solar";
 const char* topicAlerta = "est_01/alerta";
 const char* topicDados = "est_01/dados";
 
-// Configuração ThingSpeak
+// Configuração API ThingSpeak
 const char* ts_server = "api.thingspeak.com";
 const char* writeAPIKey = "2PI8MD4NVFEY9XSZ";
 const unsigned long channelID = 3140279;
@@ -53,14 +53,14 @@ const unsigned long channelID = 3140279;
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-// Configuração:
+// Configuração trigger alerta de temperatura
 const float TEMP_LIMITE = 25.00;
 unsigned long lastMsg = 0;
 bool alertaTemperatura = false;
 
-// NTP para timestamp:
+// NTP para timestamp: Sincronização de horário para timestamp
 const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = -3 * 3600; // <- fuso horário de Brasília
+const long gmtOffset_sec = -3 * 3600; 
 const int daylightOffset_sec = 0;
 
 // Funções auxiliares:
