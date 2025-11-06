@@ -1,6 +1,8 @@
 /* 
   Código ajustado para teste de dashboard no Thinkspeak.com
-  A conexão para dados junto ao thnkspeak foi feita via API.
+  A conexão para dados junto ao thinkspeak foi feita via API.
+  Os tópicos de MQTT tradicional estão apontando para o broker
+  definido na variavel mqtt.server.
   Observe os dados relativos à conexão após linha de comentários
   do thinkspeak.
 */
