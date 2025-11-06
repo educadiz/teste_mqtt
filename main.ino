@@ -1,5 +1,8 @@
 /* 
-  código ajustado para automação no n8n
+  Código ajustado para teste de dashboard no Thinkspeak.com
+  A conexão para dados junto ao thnkspeak foi feita via API.
+  Observe os dados relativos à conexão após linha de comentários
+  do thinkspeak.
 */
 
 // Bibliotecas:
