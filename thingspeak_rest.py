@@ -16,6 +16,8 @@ MQTT_TOPICS = {
     "temp": "est_01/temp",
     "umid": "est_01/umid",
     "solar": "est_01/solar",
+    "chuva": "est_01/chuva",
+    "alerta": "est_01/alerta",
 }
 
 def build_mqtt_client() -> mqtt.Client:
@@ -56,6 +58,14 @@ def generate_random_data():
     insolation = round(random.uniform(0.0, 100.0), 2)       # SOLAR
     return temperature, humidity, insolation
 
+def generate_random_rain_state() -> str:
+    """Return a random rain state string: 'chuvando' or 'sem chuva'."""
+    return random.choice(["Chuvendo", "Sem Chuva"])
+
+def generate_random_temp_alert() -> str:
+    """Return a random temperature alert string: 'on' or 'off'."""
+    return random.choice(["on", "off"])
+
 def main():
     headers = {
         'Content-Type': 'application/json'
@@ -67,6 +77,8 @@ def main():
         while True:
             # CHAMA FUNCAO DOS RANDOMICOS
             temp, hum, insol = generate_random_data()
+            rain_state = generate_random_rain_state()
+            alert_state = generate_random_temp_alert()
             
             # PEGA A HORA VIA TIMESTAMP
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -84,8 +96,8 @@ def main():
             print(f"Sending - Temperature: {temp}°C")
             print(f"Sending - Humidity: {hum}%")
             print(f"Sending - Insolation: {insol} W/m²")
-            print(f"Sending - Chuva: off")
-            print(f"Sending - Alerta Temperatura: off")
+            print(f"Sending - Chuva: {rain_state}")
+            print(f"Sending - Alerta Temperatura: {alert_state}")
             response = requests.post(BASE_URL, json=data, headers=headers)
             if response.status_code == 200:
                 print(f"Data sent successfully!")
@@ -98,10 +110,14 @@ def main():
                 mqtt_client.publish(MQTT_TOPICS["temp"], str(temp), qos=0, retain=False)
                 mqtt_client.publish(MQTT_TOPICS["umid"], str(hum), qos=0, retain=False)
                 mqtt_client.publish(MQTT_TOPICS["solar"], str(insol), qos=0, retain=False)
+                mqtt_client.publish(MQTT_TOPICS["chuva"], rain_state, qos=0, retain=False)
+                mqtt_client.publish(MQTT_TOPICS["alerta"], alert_state, qos=0, retain=False)
                 print("[MQTT] Published to topics:")
                 print(f"  {MQTT_TOPICS['temp']}: {temp}")
                 print(f"  {MQTT_TOPICS['umid']}: {hum}")
                 print(f"  {MQTT_TOPICS['solar']}: {insol}")
+                print(f"  {MQTT_TOPICS['chuva']}: {rain_state}")
+                print(f"  {MQTT_TOPICS['alerta']}: {alert_state}")
             except Exception as e:
                 print(f"[MQTT] Publish error: {e}")
             
