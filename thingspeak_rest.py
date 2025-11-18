@@ -2,7 +2,6 @@ import requests
 import random
 import time
 from datetime import datetime
-import threading
 import paho.mqtt.client as mqtt
 
 # CONFIGURACAO THINGSPEAK
@@ -21,10 +20,6 @@ MQTT_TOPICS = {
 }
 
 def build_mqtt_client() -> mqtt.Client:
-    """
-    Create and connect an MQTT client. Runs network loop in background.
-    Returns a connected client (best effort) and handles auto-reconnect.
-    """
     
     client = mqtt.Client(client_id=f"simulator-{random.randint(1000, 9999)}", clean_session=True)
     
@@ -59,11 +54,11 @@ def generate_random_data():
     return temperature, humidity, insolation
 
 def generate_random_rain_state() -> str:
-    """Return a random rain state string: 'chuvando' or 'sem chuva'."""
+    
     return random.choice(["Chuvendo", "Sem Chuva"])
 
 def generate_random_temp_alert() -> str:
-    """Return a random temperature alert string: 'on' or 'off'."""
+    
     return random.choice(["on", "off"])
 
 def main():
@@ -105,7 +100,7 @@ def main():
                 print(f"Failed to send data. Status code: {response.status_code}")
                 print(f"Response: {response.text}")
 
-            # PUBLICA TOPICOS NO MQTT EXTERNO
+            # PUBLICA TOPICOS NO MQTT EXTERNO (HiveMQ demo)
             try:
                 mqtt_client.publish(MQTT_TOPICS["temp"], str(temp), qos=0, retain=False)
                 mqtt_client.publish(MQTT_TOPICS["umid"], str(hum), qos=0, retain=False)
@@ -120,6 +115,7 @@ def main():
                 print(f"  {MQTT_TOPICS['alerta']}: {alert_state}")
             except Exception as e:
                 print(f"[MQTT] Publish error: {e}")
+
             
             # AGUARDA 15 SEGUNDOS PARA ATUALIZACAO DE POSTAGEM
             time.sleep(15)

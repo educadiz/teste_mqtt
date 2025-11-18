@@ -3,6 +3,7 @@
 Simulador que envia dados aleatórios de temperatura, umidade e insolação para:
 - ThingSpeak (via REST)
 - Broker MQTT público (HiveMQ) nos tópicos `est_01/temp`, `est_01/umid`, `est_01/solar`
+- TagoIO (via MQTT) usando token do dispositivo
 
 ## Requisitos
 
@@ -26,6 +27,21 @@ O script:
 	- `est_01/temp` (temperatura em °C)
 	- `est_01/umid` (umidade em %)
 	- `est_01/solar` (insolação em W/m²)
+	- `est_01/chuva` (0/1 via texto "Sem Chuva"/"Chovendo")
+	- `est_01/alerta` (0/1 via "off"/"on")
+ Publica no TagoIO em `mqtt.tago.io:1883` no tópico `tago/data`.
+ Autenticação MQTT TagoIO:
+ - Host: `mqtt.tago.io`
+ - Port: `1883` (use 8883 com TLS se desejar)
+ - Username: `Token`
+ - Password: `<Device Token>`
+ - Client ID: qualquer ID único
+
+## TagoIO
+- Ajuste, se necessário, em `thingspeak_rest.py`:
+  - `TAGOIO_DEVICE_TOKEN` (username do MQTT)
+  - `TAGOIO_TOPIC` (padrão `tago/data`)
+- Payload enviado é um array de variáveis com `variable`, `value`, `unit` (quando aplicável) e `time` em ISO8601.
 
 Para observar as mensagens MQTT, você pode usar, por exemplo, o HiveMQ WebSocket Client:
 

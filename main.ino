@@ -9,6 +9,7 @@
 
 // Bibliotecas:
 #include <WiFi.h>
+#include <Wire.h>
 #include <PubSubClient.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -32,9 +33,11 @@ DHT dht(DHTPIN, DHTTYPE);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 U8G2_FOR_ADAFRUIT_GFX u8g2Fonts;
 
-// WiFi: Credenciais
-const char* ssid = "**********"; // SSID de sua rede WIFI
-const char* password = "**********"; // Senha WIFI
+// WiFi: Credenciais (Primária e Backup)
+const char* ssid_primary = "ANDROMEDA";      // SSID principal
+const char* pass_primary = "22602260";       // Senha principal
+const char* ssid_backup  = "spectrum_01";    // SSID backup
+const char* pass_backup  = "22602260";       // Senha backup
 
 // Dados do MQTT: Aqui vão os tópicos via mqtt tradicional para o broker HIVEMQ
 const char* mqtt_server = "broker.hivemq.com";
@@ -56,9 +59,8 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 
 // Configuração trigger alerta de temperatura
-const float TEMP_LIMITE = 25.00;
+const float TEMP_LIMITE = 28.00;
 unsigned long lastMsg = 0;
-bool alertaTemperatura = false;
 
 // NTP para timestamp: Sincronização de horário para timestamp
 const char* ntpServer = "pool.ntp.org";
@@ -66,6 +68,12 @@ const long gmtOffset_sec = -3 * 3600;
 const int daylightOffset_sec = 0;
 
 // Funções auxiliares:
+void beepDouble() {
+  // Dois beeps curtos no buzzer ao conectar
+  digitalWrite(BUZZER, HIGH); delay(120); digitalWrite(BUZZER, LOW); delay(120);
+  digitalWrite(BUZZER, HIGH); delay(120); digitalWrite(BUZZER, LOW);
+}
+
 String getTimeStamp() {
   time_t now;
   struct tm timeinfo;
@@ -101,17 +109,40 @@ void showWelcomeScreen() {
 
 // Conexão WiFi:
 bool connectWifi() {
-  WiFi.begin(ssid, password);
+  // Tenta rede primária
+  Serial.println("[WiFi] Conectando à rede primária: ANDROMEDA...");
+  WiFi.begin(ssid_primary, pass_primary);
   int tentativas = 0;
-  while (WiFi.status() != WL_CONNECTED && tentativas < 60) {
+  while (WiFi.status() != WL_CONNECTED && tentativas < 60) { // ~15s
     delay(250);
     tentativas++;
   }
   if (WiFi.status() == WL_CONNECTED) {
+    beepDouble();
+    Serial.print("[WiFi] Conectado à: "); Serial.println(WiFi.SSID());
+    Serial.print("[WiFi] IP: "); Serial.println(WiFi.localIP());
     return true;
-  } else {
-    return false;
   }
+
+  // Tenta rede backup
+  Serial.println("[WiFi] Falha na primária. Tentando rede backup: spectrum_01...");
+  WiFi.disconnect(true);
+  delay(300);
+  WiFi.begin(ssid_backup, pass_backup);
+  tentativas = 0;
+  while (WiFi.status() != WL_CONNECTED && tentativas < 60) { // ~15s
+    delay(250);
+    tentativas++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    beepDouble();
+    Serial.print("[WiFi] Conectado à: "); Serial.println(WiFi.SSID());
+    Serial.print("[WiFi] IP: "); Serial.println(WiFi.localIP());
+    return true;
+  }
+
+  Serial.println("[WiFi] Não foi possível conectar em nenhuma rede.");
+  return false;
 }
 
 // Reconecta MQTT:
@@ -145,7 +176,7 @@ void drawNormalScreen(float temp, float umid, bool chovendo, float insolacao) {
   u8g2Fonts.setCursor(0, 64);
   u8g2Fonts.print("Chuva: "); u8g2Fonts.print(chovendo ? "Sim" : "Nao");
   u8g2Fonts.setCursor(80, 52);
-  u8g2Fonts.print("Luz: "); u8g2Fonts.print(insolacao, 0); u8g2Fonts.print("%");
+  u8g2Fonts.print("Lux: "); u8g2Fonts.print(insolacao, 0); u8g2Fonts.print("%");
   display.display();
 }
 
@@ -164,7 +195,7 @@ void drawAlertScreen(float temp, bool chovendo, float insolacao) {
   u8g2Fonts.setCursor(5, SCREEN_HEIGHT - 6);
   u8g2Fonts.print("Chuva: "); u8g2Fonts.print(chovendo ? "Sim" : "Nao");
   u8g2Fonts.setCursor(80, SCREEN_HEIGHT - 6);
-  u8g2Fonts.print("Sol: "); u8g2Fonts.print(insolacao, 0); u8g2Fonts.print("%");
+  u8g2Fonts.print("Lux: "); u8g2Fonts.print(insolacao, 0); u8g2Fonts.print("%");
   display.display();
 }
 
@@ -193,17 +224,21 @@ void loop() {
   unsigned long now = millis();
   if (now - lastMsg > 5000) {
     lastMsg = now;
+    // Temperatura
     float temp = dht.readTemperature();
     float umid = dht.readHumidity();
+    // Chuva:
     int chuvaVal = analogRead(CHUVA_PIN);
     bool chovendo = chuvaVal < 2000;
+    // Lux
     int leituraSolar = analogRead(SOLAR_PIN);
     const float offsetSolar = 0.4;      
     float tensaoSolar = (leituraSolar / 4095.0) * 3.3;
     float tensaoSolarCorrigida = tensaoSolar - offsetSolar;
     if (tensaoSolarCorrigida < 0) tensaoSolarCorrigida = 0;
-    float insolacaoPercent = (tensaoSolarCorrigida / 2.0) * 100.0;
+    float insolacaoPercent = (tensaoSolarCorrigida / 4.0) * 100.0;
     if (insolacaoPercent > 100) insolacaoPercent = 100;
+    // Alerta Temp:
     String alerta = (temp > TEMP_LIMITE) ? "on" : "off";
     String timestamp = getTimeStamp();
 
@@ -214,7 +249,7 @@ void loop() {
     client.publish(topicSolar, String(insolacaoPercent, 0).c_str());
     client.publish(topicAlerta, alerta.c_str());
 
-    // Envio para ThingSpeak
+    // Envio para ThingSpeak (apenas com valores válidos)
     if (!isnan(temp) && !isnan(umid)) {
       String tsUrl = "/update?api_key=";
       tsUrl += writeAPIKey;
@@ -233,15 +268,16 @@ void loop() {
         delay(100);
         tsClient.stop();
       }
+    }
 
-    // JSON consolidado
+    // JSON consolidado (opcional — sempre publica snapshot atual)
     String payload = "{";
-    payload += "\"temperatura\": " + String(temp, 1) + ",";
-    payload += "\"umidade\": " + String(umid, 1) + ",";
-    payload += "\"indice_solar\": " + String(insolacaoPercent, 0) + ",";
-    payload += "\"chuva\": \"" + String(chovendo ? "Chovendo" : "Sem chuva") + "\",";
-    payload += "\"alerta\": \"" + alerta + "\",";
-    payload += "\"timestamp\": \"" + timestamp + "\"";
+    payload += "\"Temperatura\": " + String(temp, 1) + ",";
+    payload += "\"Umidade\": " + String(umid, 1) + ",";
+    payload += "\"Lux\": " + String(insolacaoPercent, 0) + ",";
+    payload += "\"Chuva\": \"" + String(chovendo ? "Chovendo" : "Sem chuva") + "\",";
+    payload += "\"Alerta Temp.\": \"" + alerta + "\",";
+    payload += "\"Timestamp\": \"" + timestamp + "\"";
     payload += "}";
     client.publish(topicDados, payload.c_str());
     Serial.println(payload);
@@ -264,3 +300,4 @@ void loop() {
     }
   }
 }
+
