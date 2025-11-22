@@ -13,9 +13,16 @@
   - Adafruit ST7735 and ST7789 Library
   - DHT sensor library
   - PubSubClient
+  - Blynk
   
   Instale via Library Manager do Arduino IDE.
 */
+
+// Configuração Blynk: Ajuste suas credenciais abaixo:
+#define BLYNK_TEMPLATE_ID "TMPL2EzjqzR7P"
+#define BLYNK_TEMPLATE_NAME "EMC01"
+#define BLYNK_AUTH_TOKEN "y0YIz5He8zrIW1BF-0eHwQAN7VdxJkAK"
+#define BLYNK_PRINT Serial
 
 // Bibliotecas:
 #include <WiFi.h>
@@ -25,13 +32,14 @@
 #include <SPI.h>
 #include <DHT.h>
 #include <time.h>
+#include <BlynkSimpleEsp32.h>
 
 // Hardware: Pinos de sensores e atuadores
 #define DHTPIN 32
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
-#define LED_VERDE 15
-#define LED_VERMELHO 16
+#define LED_VERDE 16
+#define LED_VERMELHO 17
 #define BUZZER 2
 #define CHUVA_PIN 34
 #define SOLAR_PIN 33  
@@ -42,15 +50,19 @@ DHT dht(DHTPIN, DHTTYPE);
 #define SCREEN_WIDTH 320    // Largura em paisagem
 #define SCREEN_HEIGHT 240   // Altura em paisagem
 
-// display - Pinos de controle
+// Display - Pinos de controle:
 #define TFT_CS    5 
-#define TFT_RST   18
+#define TFT_RST   15
 #define TFT_DC    4
-#define TFT_MOSI  21   // SDA, HW MOSI
-#define TFT_SCLK  22   // SCL, HW SCLK
+#define TFT_MOSI  23   // SDA, HW MOSI
+#define TFT_SCLK  18   // SCL, HW SCLK
 
-// Inicialização do display:
-Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
+// Configuração SPI ULTRA otimizada para performance do display:
+#define SPI_FREQUENCY 40000000        // 40MHz - frequência segura e otimizada para ST7789
+#define SPI_READ_FREQUENCY 20000000   // 20MHz - frequência segura para leituras
+
+// Inicialização do display com SPI hardware otimizado:
+Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 
 // WiFi: Credenciais (Primária e Backup)
 const char* ssid_primary = "ANDROMEDA";      // SSID principal
@@ -59,6 +71,7 @@ const char* ssid_backup  = "spectrum_01";    // SSID backup
 const char* pass_backup  = "22602260";       // Senha backup
 
 // Dados do MQTT: Aqui vão os tópicos via mqtt tradicional para o broker HIVEMQ
+// Ajuste o broker e os tópicos conforme sua necessidade
 const char* mqtt_server = "broker.hivemq.com";
 const int mqtt_port = 1883;
 const char* clientID = "cangaco_01";
@@ -69,7 +82,7 @@ const char* topicSolar = "est_01/solar";
 const char* topicAlerta = "est_01/alerta";
 const char* topicDados = "est_01/dados";
 
-// Configuração API ThingSpeak:
+// Configuração API ThingSpeak: Insira abaixo suas credenciais
 const char* ts_server = "api.thingspeak.com";
 const char* writeAPIKey = "2PI8MD4NVFEY9XSZ";
 const unsigned long channelID = 3140279;
@@ -78,17 +91,27 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 
 // Configuração trigger alerta de temperatura:
-const float TEMP_LIMITE = 30.00;
-const float TEMP_OFFSET = -2.0; // Offset para correção da temperatura
+const float TEMP_LIMITE = 30.00;  // Temperatura Limite
+const float TEMP_OFFSET = -2.0;   // Offset para correção da temperatura
 unsigned long lastMsg = 0;
 unsigned long lastDisplayUpdate = 0;
-const unsigned long DISPLAY_UPDATE_INTERVAL = 5000;   // Atualiza display a cada 5
-const unsigned long MQTT_UPDATE_INTERVAL = 15000;     // Envia dados MQTT a cada 15
+const unsigned long DISPLAY_UPDATE_INTERVAL = 3000;    // Atualiza display a cada 3s (mais estável)
+const unsigned long MQTT_UPDATE_INTERVAL = 15000;     // Envia dados MQTT a cada 15s
 
 // Variáveis para otimização do display:
 float lastTemp = -999, lastUmid = -999, lastInsolacao = -999;
 bool lastChovendo = false, lastAlerta = false;
 bool forceDisplayUpdate = true;
+
+// Controle de reconexão Wifi automática:
+unsigned long lastReconnectAttempt = 0;
+const unsigned long RECONNECT_INTERVAL = 30000; // 30s
+bool wifiConnected = false;
+bool mqttConnected = false;
+
+// Controle de qual rede está sendo usada:
+bool usingPrimaryNetwork = false;
+bool usingBackupNetwork = false;
 
 // NTP para timestamp: Sincronização de horário para timestamp
 const char* ntpServer = "pool.ntp.org";
@@ -97,7 +120,6 @@ const int daylightOffset_sec = 0;
 
 // Funções auxiliares:
 void beepDouble() {
-  // Dois beeps curtos no buzzer ao conectar
   digitalWrite(BUZZER, HIGH); delay(120); digitalWrite(BUZZER, LOW); delay(120);
   digitalWrite(BUZZER, HIGH); delay(120); digitalWrite(BUZZER, LOW);
 }
@@ -112,22 +134,31 @@ String getTimeStamp() {
   return String((unsigned long)now);
 }
 
-// Funções auxiliares para centralização:
+// Função para resetar flags estáticas (útil para mudanças de rede):
+void resetDisplayFlags() {
+  // Esta função pode ser chamada quando há mudança significativa de estado
+  forceDisplayUpdate = true;
+}
+
+// Função para limpar área específica (ULTRA otimizada):
+void clearDisplayArea(int x, int y, int w, int h) {
+  tft.fillRect(x, y, w, h, ST77XX_BLACK);  
+}
+
+// Funções auxiliares para centralização no display:
 int getCenterX(String text, int textSize) {
-  // Cálculo mais preciso considerando fonte do display
-  int charWidth = 6 * textSize; // 6 pixels por caractere é padrão
+  int charWidth = 6 * textSize;
   int textWidth = text.length() * charWidth;
   int centerX = (SCREEN_WIDTH - textWidth) / 2;
-  return centerX < 0 ? 0 : centerX; // Evita valores negativos
+  return centerX < 0 ? 0 : centerX;
 }
 
 int getCenterY(int totalHeight) {
   int centerY = (SCREEN_HEIGHT - totalHeight) / 2;
-  return centerY < 0 ? 0 : centerY; // Evita valores negativos
+  return centerY < 0 ? 0 : centerY;
 }
 
 void drawCenteredText(String text, int x, int y, int size, uint16_t color) {
-  // Validação de parâmetros
   if (size < 1) size = 1;
   if (size > 4) size = 4;
   
@@ -135,40 +166,42 @@ void drawCenteredText(String text, int x, int y, int size, uint16_t color) {
   tft.setTextColor(color, ST77XX_BLACK);
   
   if (x == -1) {
-    x = getCenterX(text, size); // Auto-centralizar se x = -1
+    x = getCenterX(text, size);
   }
   
-  // Garante que as coordenadas estão dentro dos limites da tela
+  // Garante que as coordenadas estão dentro dos limites da tela:
   if (x >= 0 && x < SCREEN_WIDTH && y >= 0 && y < SCREEN_HEIGHT) {
     tft.setCursor(x, y);
     tft.print(text);
   }
 }
 
-// Tela de boas-vindas:
+// Tela de boas-vindas otimizada:
 void showWelcomeScreen() {
   Serial.println("[INFO] Exibindo tela de boas-vindas...");
   
+  // Otimiza configurações do display:
+  tft.cp437(true);          // Usa conjunto de caracteres padrão
+  tft.setTextWrap(false);   // Desabilita quebra automática de texto
   tft.fillScreen(ST77XX_BLACK);
-  tft.setTextWrap(false);
   
-  // Cálculo para centralização vertical total (layout para 320x240)
-  int totalTextHeight = 4 * 30; // 4 linhas com espaçamento
+  // Cálculo para centralização vertical total (layout para 320x240):
+  int totalTextHeight = 4 * 30;
   int startY = getCenterY(totalTextHeight);
   
-  // Logo/Título principal centralizado
+  // Logo/Título principal centralizado:
   drawCenteredText("Estacao", -1, startY, 2, ST77XX_WHITE);
   drawCenteredText("Meteorologica", -1, startY + 30, 2, ST77XX_CYAN);
   
-  // Linha decorativa
+  // Linha decorativa:
   int lineY = startY + 70;
   tft.drawFastHLine(SCREEN_WIDTH/4, lineY, SCREEN_WIDTH/2, ST77XX_BLUE);
   
-  // Nome do projeto e identificação
+  // Nome do projeto e identificação:
   drawCenteredText("CANGACEIROS", -1, lineY + 20, 2, ST77XX_YELLOW);
   drawCenteredText("[ est_01 ]", -1, lineY + 50, 2, ST77XX_GREEN); //
   
-  // Indicador de carregamento
+  // Indicador de carregamento:
   for(int i = 0; i < 4; i++) {
     int dotX = (SCREEN_WIDTH/2) - 30 + (i * 20);
     tft.fillCircle(dotX, lineY + 75, 3, ST77XX_WHITE);
@@ -179,45 +212,240 @@ void showWelcomeScreen() {
   delay(2000);
 }
 
-// Conexão WiFi:
-bool connectWifi() {
-  // Tenta rede primária
-  Serial.println("[WiFi] Conectando à rede primária: ANDROMEDA...");
-  WiFi.begin(ssid_primary, pass_primary);
-  int tentativas = 0;
-  while (WiFi.status() != WL_CONNECTED && tentativas < 60) { // ~15s
-    delay(250);
-    tentativas++;
+// Função para desenhar barra de carregamento WiFi otimizada:
+void drawWiFiLoadingScreen(String ssid, int progress, int maxProgress) {
+  // Limpa apenas a área necessária em vez da tela toda
+  static bool firstRun = true;
+  if (firstRun) {
+    tft.fillScreen(ST77XX_BLACK);
+    // Configura parâmetros básicos
+    tft.cp437(true);
+    tft.setTextWrap(false);
+    firstRun = false;
+  } else {
+    // Limpa apenas a área da barra de progresso e porcentagem
+    clearDisplayArea(0, 95, SCREEN_WIDTH, 60);
   }
-  if (WiFi.status() == WL_CONNECTED) {
-    beepDouble();
-    Serial.print("[WiFi] Conectado à: "); Serial.println(WiFi.SSID());
-    Serial.print("[WiFi] IP: "); Serial.println(WiFi.localIP());
-    return true;
+  
+  // Título (só desenha na primeira vez):
+  static bool titleDrawn = false;
+  if (!titleDrawn) {
+    drawCenteredText("CONECTANDO WIFI", -1, 40, 2, ST77XX_CYAN);
+    String redeText = "Rede: " + ssid;
+    drawCenteredText(redeText, -1, 70, 2, ST77XX_WHITE);
+    titleDrawn = true;
+  }
+  
+  // Barra de carregamento: Tamanho
+  int barWidth = 200;
+  int barHeight = 12;
+  int barX = (SCREEN_WIDTH - barWidth) / 2;
+  int barY = 100;
+  
+  // Moldura da barra:
+  tft.drawRect(barX, barY, barWidth, barHeight, ST77XX_WHITE);
+  
+  // Preenchimento da barra:
+  int fillWidth = (progress * (barWidth - 2)) / maxProgress;
+  if (fillWidth > 0) {
+    tft.fillRect(barX + 1, barY + 1, fillWidth, barHeight - 2, ST77XX_GREEN);
+  }
+  
+  // Porcentagem:
+  int percent = (progress * 100) / maxProgress;
+  String percentStr = String(percent) + "%";
+  drawCenteredText(percentStr, -1, 125, 1, ST77XX_YELLOW);
+  
+  // Status:
+  drawCenteredText("Tentando conectar...", -1, 150, 1, ST77XX_WHITE);
+  drawCenteredText("Aguarde", -1, 180, 1, ST77XX_GREEN);
+}
+
+// Conexão WiFi com barra de carregamento simplificada:
+bool connectWifiWithProgress() {
+  // Mostra tela inicial de conexão
+  tft.fillScreen(ST77XX_BLACK);
+  drawCenteredText("CONECTANDO WIFI", -1, 40, 2, ST77XX_CYAN);
+  
+  // Tenta rede primária
+  Serial.print("[WiFi] Conectando à rede primária: ");
+  Serial.println(ssid_primary);
+  
+  String redeText = "Rede: " + String(ssid_primary);
+  drawCenteredText(redeText, -1, 70, 1, ST77XX_WHITE);
+  drawCenteredText("Tentando conectar...", -1, 100, 1, ST77XX_YELLOW);
+  
+  WiFi.begin(ssid_primary, pass_primary);
+  
+  // Barra de carregamento simplificada para rede primária:
+  for (int i = 0; i <= 20; i++) {
+    // Desenha barra simples
+    int barWidth = 200;
+    int barHeight = 8;
+    int barX = (SCREEN_WIDTH - barWidth) / 2;
+    int barY = 120;
+    
+    // Apaga barra anterior
+    tft.fillRect(barX, barY, barWidth, barHeight, ST77XX_BLACK);
+    // Desenha moldura
+    tft.drawRect(barX, barY, barWidth, barHeight, ST77XX_WHITE);
+    // Desenha progresso
+    int fillWidth = (i * (barWidth - 2)) / 20;
+    if (fillWidth > 0) {
+      tft.fillRect(barX + 1, barY + 1, fillWidth, barHeight - 2, ST77XX_GREEN);
+    }
+    
+    // Mostra porcentagem:
+    String percent = String((i * 100) / 20) + "%";
+    tft.fillRect(barX, barY + 15, barWidth, 20, ST77XX_BLACK); // Limpa área do texto
+    drawCenteredText(percent, -1, barY + 20, 1, ST77XX_YELLOW);
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      beepDouble();
+      // Tela de sucesso
+      tft.fillScreen(ST77XX_BLACK);
+      drawCenteredText("WIFI CONECTADO!", -1, 100, 2, ST77XX_GREEN);
+      drawCenteredText(WiFi.SSID(), -1, 130, 1, ST77XX_WHITE);
+      drawCenteredText(WiFi.localIP().toString(), -1, 150, 1, ST77XX_YELLOW);
+      delay(2000);
+      
+      Serial.print("[WiFi] Conectado à: "); Serial.println(WiFi.SSID());
+      Serial.print("[WiFi] IP: "); Serial.println(WiFi.localIP());
+      wifiConnected = true;
+      usingPrimaryNetwork = true;
+      usingBackupNetwork = false;
+      return true;
+    }
+    delay(250);
   }
 
-  // Tenta rede backup
-  Serial.println("[WiFi] Falha na primária. Tentando rede backup: spectrum_01...");
+  // Tenta rede backup:
+  Serial.print("[WiFi] Falha na primária. Tentando rede backup: ");
+  Serial.println(ssid_backup);
   WiFi.disconnect(true);
   delay(300);
+  
+  // Mostra tentativa de backup:
+  tft.fillScreen(ST77XX_BLACK);
+  drawCenteredText("TENTANDO BACKUP", -1, 40, 2, ST77XX_CYAN);
+  String redeBackup = "Rede: " + String(ssid_backup);
+  drawCenteredText(redeBackup, -1, 70, 1, ST77XX_WHITE);
+  drawCenteredText("Conectando...", -1, 100, 1, ST77XX_YELLOW);
+  
   WiFi.begin(ssid_backup, pass_backup);
-  tentativas = 0;
-  while (WiFi.status() != WL_CONNECTED && tentativas < 60) { // ~15s
+  
+  // Barra de carregamento simplificada para rede backup:
+  for (int i = 0; i <= 20; i++) {
+    // Desenha barra simples
+    int barWidth = 200;
+    int barHeight = 8;
+    int barX = (SCREEN_WIDTH - barWidth) / 2;
+    int barY = 120;
+    
+    // Apaga barra anterior
+    tft.fillRect(barX, barY, barWidth, barHeight, ST77XX_BLACK);
+    // Desenha moldura
+    tft.drawRect(barX, barY, barWidth, barHeight, ST77XX_WHITE);
+    // Desenha progresso
+    int fillWidth = (i * (barWidth - 2)) / 20;
+    if (fillWidth > 0) {
+      tft.fillRect(barX + 1, barY + 1, fillWidth, barHeight - 2, ST77XX_GREEN);
+    }
+    
+    // Mostra porcentagem
+    String percent = String((i * 100) / 20) + "%";
+    tft.fillRect(barX, barY + 15, barWidth, 20, ST77XX_BLACK);
+    drawCenteredText(percent, -1, barY + 20, 1, ST77XX_YELLOW);
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      beepDouble();
+      // Tela de sucesso:
+      tft.fillScreen(ST77XX_BLACK);
+      drawCenteredText("WIFI CONECTADO!", -1, 100, 2, ST77XX_GREEN);
+      drawCenteredText(WiFi.SSID(), -1, 130, 1, ST77XX_WHITE);
+      drawCenteredText(WiFi.localIP().toString(), -1, 150, 1, ST77XX_YELLOW);
+      delay(2000);
+      
+      Serial.print("[WiFi] Conectado à: "); Serial.println(WiFi.SSID());
+      Serial.print("[WiFi] IP: "); Serial.println(WiFi.localIP());
+      wifiConnected = true;
+      usingPrimaryNetwork = false;
+      usingBackupNetwork = true;
+      return true;
+    }
     delay(250);
-    tentativas++;
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    beepDouble();
-    Serial.print("[WiFi] Conectado à: "); Serial.println(WiFi.SSID());
-    Serial.print("[WiFi] IP: "); Serial.println(WiFi.localIP());
-    return true;
   }
 
+  // Falha em ambas as redes:
+  tft.fillScreen(ST77XX_BLACK);
+  drawCenteredText("WIFI FALHOU", -1, 100, 2, ST77XX_RED);
+  drawCenteredText("Continuando OFF-LINE", -1, 130, 2, ST77XX_YELLOW);
+  drawCenteredText("Sistema operacional", -1, 150, 1, ST77XX_WHITE);
+  delay(3000);
+  
   Serial.println("[WiFi] Não foi possível conectar em nenhuma rede.");
+  wifiConnected = false;
+  usingPrimaryNetwork = false;
+  usingBackupNetwork = false;
   return false;
 }
 
-// Função para verificar se os dados mudaram significativamente
+// Função de reconexão automática silenciosa:
+bool attemptReconnect() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WiFi] Tentativa de reconexão automática...");
+    
+    // Tenta reconectar à rede que estava sendo usada antes
+    const char* ssid_to_use = usingPrimaryNetwork ? ssid_primary : ssid_backup;
+    const char* pass_to_use = usingPrimaryNetwork ? pass_primary : pass_backup;
+    
+    // Se nenhuma rede estava sendo usada, tenta primária primeiro
+    if (!usingPrimaryNetwork && !usingBackupNetwork) {
+      ssid_to_use = ssid_primary;
+      pass_to_use = pass_primary;
+    }
+    
+    Serial.print("[WiFi] Tentando reconectar à: ");
+    Serial.println(ssid_to_use);
+    
+    WiFi.begin(ssid_to_use, pass_to_use);
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 10) {
+      delay(500);
+      attempts++;
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("[WiFi] Reconectado com sucesso");
+      wifiConnected = true;
+      // Não muda as flags de rede aqui, mantém a rede atual
+      return true;
+    } else {
+      Serial.println("[WiFi] Falha na reconexão");
+      wifiConnected = false;
+      usingPrimaryNetwork = false;
+      usingBackupNetwork = false;
+    }
+  } else {
+    wifiConnected = true;
+  }
+  
+  // Tenta reconectar MQTT se WiFi estiver conectado:
+  if (wifiConnected && !client.connected()) {
+    Serial.println("[MQTT] Tentativa de reconexão automática...");
+    if (client.connect(clientID)) {
+      Serial.println("[MQTT] Reconectado com sucesso!");
+      mqttConnected = true;
+    } else {
+      Serial.println("[MQTT] Falha na reconexão");
+      mqttConnected = false;
+    }
+  }
+  
+  return wifiConnected;
+}
+
+// Função para verificar se os dados mudaram significativamente:
 bool needsDisplayUpdate(float temp, float umid, bool chovendo, float insolacao, bool alertaAtivo) {
   // Primeira execução sempre atualiza
   if (forceDisplayUpdate) {
@@ -225,15 +453,15 @@ bool needsDisplayUpdate(float temp, float umid, bool chovendo, float insolacao, 
     return true;
   }
   
-  // Se os últimos valores são padrão (-999), força atualização
+  // Se os últimos valores são padrão (-999), força atualização:
   if (lastTemp == -999 || lastUmid == -999) {
     return true;
   }
   
-  // Verifica mudanças significativas (valores mais baixos para maior sensibilidade)
-  if (abs(temp - lastTemp) > 0.1 || 
-      abs(umid - lastUmid) > 0.5 ||
-      abs(insolacao - lastInsolacao) > 1.0 ||
+  // Verifica mudanças significativas para atualização estável (reduzido para evitar piscar)
+  if (abs(temp - lastTemp) > 0.5 ||            // Menos sensível a mudanças de temperatura
+      abs(umid - lastUmid) > 2.0 ||             // Menos sensível a mudanças de umidade
+      abs(insolacao - lastInsolacao) > 5.0 ||   // Menos sensível a mudanças de luminosidade
       chovendo != lastChovendo ||
       alertaAtivo != lastAlerta) {
     return true;
@@ -243,71 +471,117 @@ bool needsDisplayUpdate(float temp, float umid, bool chovendo, float insolacao, 
 
 // Reconecta MQTT:
 void reconnectMQTT() {
-  while (!client.connected()) {
+  if (wifiConnected && !client.connected()) {
     if (client.connect(clientID)) {
       Serial.println("[INFO] MQTT conectado!");
+      mqttConnected = true;
     } else {
-      delay(5000);
+      Serial.println("[ERROR] Falha na conexão MQTT");
+      mqttConnected = false;
     }
   }
 }
 
-// Exibição normal:
-void drawNormalScreen(float temp, float umid, bool chovendo, float insolacao) {
-  Serial.println("[DEBUG] Desenhando tela normal");
+// Função para atualização seletiva de valores sem piscar
+void updateDisplayValues(float temp, float umid, bool chovendo, float insolacao) {
+  // Atualiza apenas os valores que mudaram sem limpar a tela toda
   
-  tft.fillScreen(ST77XX_BLACK);
-  tft.setTextWrap(false);
+  // Temperatura (se mudou significativamente)
+  if (abs(temp - lastTemp) > 0.5) {
+    tft.fillRect(0, 45, SCREEN_WIDTH, 25, ST77XX_BLACK); // Limpa só a área do valor
+    String tempStr = String(temp, 1) + " C";
+    drawCenteredText(tempStr, -1, 45, 2, ST77XX_YELLOW);
+  }
   
-  // Título principal (mais compacto)
-  drawCenteredText("ESTACAO CANGACEIROS", -1, 8, 1, ST77XX_CYAN);
+  // Umidade (se mudou significativamente)
+  if (abs(umid - lastUmid) > 2.0) {
+    tft.fillRect(0, 90, SCREEN_WIDTH, 25, ST77XX_BLACK); // Limpa só a área do valor
+    String umidStr = String(umid, 1) + " %";
+    drawCenteredText(umidStr, -1, 90, 2, ST77XX_YELLOW);
+  }
   
-  // Linha divisória
-  tft.drawFastHLine(SCREEN_WIDTH/6, 22, 2*SCREEN_WIDTH/3, ST77XX_BLUE);
+  // Chuva (se mudou)
+  if (chovendo != lastChovendo) {
+    tft.fillRect(0, 135, SCREEN_WIDTH, 25, ST77XX_BLACK); // Limpa só a área do valor
+    String chuvaStr = chovendo ? "CHOVENDO" : "SEM CHUVA";
+    uint16_t chuvaColor = chovendo ? ST77XX_GREEN : ST77XX_YELLOW;
+    drawCenteredText(chuvaStr, -1, 135, 2, chuvaColor);
+  }
   
-  // Temperatura
-  drawCenteredText("TEMPERATURA", -1, 30, 1, ST77XX_WHITE);
-  String tempStr = String(temp, 1) + " C";
-  drawCenteredText(tempStr, -1, 45, 2, ST77XX_YELLOW);
+  // Luminosidade (se mudou significativamente)
+  if (abs(insolacao - lastInsolacao) > 5.0) {
+    tft.fillRect(0, 180, SCREEN_WIDTH, 25, ST77XX_BLACK); // Limpa só a área do valor
+    String luxStr = String(insolacao, 0) + " %";
+    drawCenteredText(luxStr, -1, 180, 2, ST77XX_YELLOW);
+  }
   
-  // Umidade
-  drawCenteredText("UMIDADE", -1, 75, 1, ST77XX_WHITE);
-  String umidStr = String(umid, 1) + " %";
-  drawCenteredText(umidStr, -1, 90, 2, ST77XX_YELLOW);
-  
-  // Chuva
-  drawCenteredText("CHUVA", -1, 120, 1, ST77XX_WHITE);
-  String chuvaStr = chovendo ? "CHUVENDO" : "SEM CHUVA";
-  uint16_t chuvaColor = chovendo ? ST77XX_GREEN : ST77XX_YELLOW;
-  drawCenteredText(chuvaStr, -1, 135, 2, chuvaColor);
-  
-  // Luminosidade
-  drawCenteredText("LUMINOSIDADE", -1, 165, 1, ST77XX_WHITE);
-  String luxStr = String(insolacao, 0) + " %";
-  drawCenteredText(luxStr, -1, 180, 2, ST77XX_YELLOW);
-  
-  // Status das conexões no rodapé
+  // Atualiza status das conexões (área inferior)
   String wifiStatus = WiFi.status() == WL_CONNECTED ? "WiFi: OK" : "WiFi: OFF";
-  uint16_t wifiColor = WiFi.status() == WL_CONNECTED ? ST77XX_GREEN : ST77XX_RED;
-  
   String mqttStatus = client.connected() ? "MQTT: OK" : "MQTT: OFF";
-  uint16_t mqttColor = client.connected() ? ST77XX_GREEN : ST77XX_RED;
-  
   String statusLine = wifiStatus + "  |  " + mqttStatus;
-  drawCenteredText(statusLine, -1, 215, 2, ST77XX_WHITE);
   
-  // Indicadores coloridos para WiFi e MQTT
-  //nt centerX = SCREEN_WIDTH / 2;
-  // tft.fillCircle(centerX - 60, 225, 3, wifiColor);  // Indicador WiFi
-  // tft.fillCircle(centerX + 60, 225, 3, mqttColor);  // Indicador MQTT
+  tft.fillRect(0, 210, SCREEN_WIDTH, 30, ST77XX_BLACK); // Limpa só a área de status
+  drawCenteredText(statusLine, -1, 215, 2, ST77XX_WHITE);
 }
 
-// Exibição alerta:
-void drawAlertScreen(float temp, bool chovendo, float insolacao) {
-  Serial.println("[DEBUG] Desenhando tela de alerta");
+// Exibição normal estabilizada:
+void drawNormalScreen(float temp, float umid, bool chovendo, float insolacao) {
+  Serial.println("[DEBUG] Desenhando tela normal estável");
   
-  tft.fillScreen(ST77XX_BLACK);
+  // Verifica se é necessário redesenhar a tela completa
+  static bool screenInitialized = false;
+  bool needFullRedraw = !screenInitialized || forceDisplayUpdate;
+  
+  if (needFullRedraw) {
+    // Redesenha tela completa apenas quando necessário
+    tft.cp437(true);
+    tft.setTextWrap(false);
+    tft.fillScreen(ST77XX_BLACK);
+    
+    // Elementos fixos (só desenha uma vez)
+    drawCenteredText("ESTACAO CANGACEIROS", -1, 8, 1, ST77XX_CYAN);
+    tft.drawFastHLine(SCREEN_WIDTH/6, 22, 2*SCREEN_WIDTH/3, ST77XX_BLUE);
+    
+    // Labels fixos
+    drawCenteredText("TEMPERATURA", -1, 30, 1, ST77XX_WHITE);
+    drawCenteredText("UMIDADE", -1, 75, 1, ST77XX_WHITE);
+    drawCenteredText("CHUVA", -1, 120, 1, ST77XX_WHITE);
+    drawCenteredText("LUMINOSIDADE", -1, 165, 1, ST77XX_WHITE);
+    
+    screenInitialized = true;
+    
+    // Desenha todos os valores na primeira vez
+    String tempStr = String(temp, 1) + " C";
+    drawCenteredText(tempStr, -1, 45, 2, ST77XX_YELLOW);
+    
+    String umidStr = String(umid, 1) + " %";
+    drawCenteredText(umidStr, -1, 90, 2, ST77XX_YELLOW);
+    
+    String chuvaStr = chovendo ? "CHOVENDO" : "SEM CHUVA";
+    uint16_t chuvaColor = chovendo ? ST77XX_GREEN : ST77XX_YELLOW;
+    drawCenteredText(chuvaStr, -1, 135, 2, chuvaColor);
+    
+    String luxStr = String(insolacao, 0) + " %";
+    drawCenteredText(luxStr, -1, 180, 2, ST77XX_YELLOW);
+    
+    String wifiStatus = WiFi.status() == WL_CONNECTED ? "WiFi: OK" : "WiFi: OFF";
+    String mqttStatus = client.connected() ? "MQTT: OK" : "MQTT: OFF";
+    String statusLine = wifiStatus + "  |  " + mqttStatus;
+    drawCenteredText(statusLine, -1, 215, 2, ST77XX_WHITE);
+  } else {
+    // Atualização seletiva apenas dos valores que mudaram
+    updateDisplayValues(temp, umid, chovendo, insolacao);
+  }
+}
+
+// Exibição alerta estabilizada:
+void drawAlertScreen(float temp, bool chovendo, float insolacao) {
+  Serial.println("[DEBUG] Desenhando tela de alerta estável");
+  
+  // Sempre redesenha tela de alerta completamente (é menos frequente)
+  tft.cp437(true);
   tft.setTextWrap(false);
+  tft.fillScreen(ST77XX_BLACK);
   
   // Título de alerta
   drawCenteredText("ALERTA", -1, 10, 2, ST77XX_RED);
@@ -330,8 +604,8 @@ void drawAlertScreen(float temp, bool chovendo, float insolacao) {
   
   // Chuva
   drawCenteredText("CHUVA", -1, 140, 1, ST77XX_WHITE);
-  String chuvaStr = chovendo ? "CHUVENDO" : "SEM CHUVA";
-  uint16_t chuvaColor = chovendo ? ST77XX_BLUE : ST77XX_GREEN;
+  String chuvaStr = chovendo ? "CHOVENDO" : "SEM CHUVA";
+  uint16_t chuvaColor = chovendo ? ST77XX_GREEN : ST77XX_YELLOW;
   drawCenteredText(chuvaStr, -1, 155, 1, chuvaColor);
   
   // Luminosidade
@@ -339,14 +613,14 @@ void drawAlertScreen(float temp, bool chovendo, float insolacao) {
   String luxStr = String(insolacao, 0) + " %";
   drawCenteredText(luxStr, -1, 190, 1, ST77XX_YELLOW);
   
-  // Aviso final:
+  // Aviso final
   drawCenteredText("!!! ATENCAO !!!", -1, 190, 2, ST77XX_RED);
   
   // Status das conexões no rodapé
   String wifiStatus = WiFi.status() == WL_CONNECTED ? "WiFi: OK" : "WiFi: OFF";
   String mqttStatus = client.connected() ? "MQTT: OK" : "MQTT: OFF";
   String statusLine = wifiStatus + "  |  " + mqttStatus;
-  drawCenteredText(statusLine, -1, 220, 2, ST77XX_WHITE);
+  drawCenteredText(statusLine, -1, 220, 1, ST77XX_WHITE);
 }
 
 void setup() {
@@ -372,59 +646,123 @@ void setup() {
   delay(100);
   Serial.println("[INFO] Preparando inicialização do display");
   
-  // Inicializa display com tratamento de erro
-  Serial.println("[INFO] Inicializando display ST7789...");
+  // Configura SPI HARDWARE com máxima performance:
+  SPI.begin();  
+  SPI.setFrequency(SPI_FREQUENCY);
+  SPI.setDataMode(SPI_MODE0);
+  SPI.setBitOrder(MSBFIRST);
   
-  // Inicialização do display ST7789 GMT020-02-7P v1.3
-  tft.init(SCREEN_WIDTH_PORTRAIT, SCREEN_HEIGHT_PORTRAIT);
-  delay(100);
+  // Inicialização ULTRA otimizada do display ST7789 GMT020-02-7P v1.3:
+  tft.init(SCREEN_WIDTH_PORTRAIT, SCREEN_HEIGHT_PORTRAIT, SPI_MODE0);
+  delay(50);  
   
   // Define rotação para paisagem ANTES de qualquer operação gráfica
   tft.setRotation(1); // Paisagem (0°=retrato, 1=paisagem, 2=retrato invertido, 3=paisagem invertida)
   delay(50);
-  
-  // Agora podemos usar as operações gráficas com segurança
   tft.fillScreen(ST77XX_BLACK);
   
-  Serial.println("[INFO] Display ST7789 inicializado com sucesso!");
-  Serial.print("[INFO] Resolucao em paisagem: ");
-  Serial.print(SCREEN_WIDTH);
-  Serial.print("x");
-  Serial.println(SCREEN_HEIGHT);
+  // Aplica configurações básicas de performance ao display
+  tft.cp437(true);  
+  tft.setTextWrap(false);  
   
-  // Exibe tela de boas-vindas
+  // Configuração adicional de performance para ESP32
+  #ifdef ESP32
+  #endif
+  
+  // Exibe tela de boas-vindas:
   showWelcomeScreen();
+  
+  // Pequeno delay para estabilizar display
+  delay(500);
   
   // Força primeira atualização do display após boas-vindas
   forceDisplayUpdate = true;
   lastDisplayUpdate = 0; // Garante que a primeira verificação no loop seja executada
   
-  // Conecta WiFi
-  Serial.println("[INFO] Iniciando conexao WiFi...");
-  connectWifi();
+  // Conecta WiFi com barra de carregamento
+  connectWifiWithProgress();
+  
+  // Atualiza status das conexões
+  wifiConnected = (WiFi.status() == WL_CONNECTED);
   
   // Configura NTP
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-  Serial.println("[INFO] NTP configurado");
+  if (wifiConnected) {
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    Serial.println("[INFO] NTP configurado");
+  }
   
   // Configura MQTT
   client.setServer(mqtt_server, mqtt_port);
+  if (wifiConnected) {
+    reconnectMQTT();
+  }
+  mqttConnected = client.connected();
   Serial.println("[INFO] MQTT configurado");
   
+  // Inicializa Blynk com as credenciais da rede que está conectada
+  if (wifiConnected) {
+    if (usingPrimaryNetwork) {
+      Blynk.begin(BLYNK_AUTH_TOKEN, ssid_primary, pass_primary);
+      Serial.println("[INFO] Blynk inicializado com rede primária");
+    } else if (usingBackupNetwork) {
+      Blynk.begin(BLYNK_AUTH_TOKEN, ssid_backup, pass_backup);
+      Serial.println("[INFO] Blynk inicializado com rede backup");
+    } else {
+      // Fallback: usa as credenciais da rede atual
+      Serial.println("[INFO] Blynk inicializado com configuração automática");
+      Blynk.config(BLYNK_AUTH_TOKEN);
+      Blynk.connect();
+    }
+  } else {
+    Serial.println("[INFO] Blynk não inicializado - sem WiFi");
+  }
+  
+  // Sinal de inicialização completa
+  digitalWrite(LED_VERDE, HIGH);
+  Serial.println("[INFO] === Sistema inicializado com sucesso! ===");
+
   // Sinal de inicialização completa
   digitalWrite(LED_VERDE, HIGH);
   Serial.println("[INFO] === Sistema inicializado com sucesso! ===");
 }
 
 void loop() {
-  // Mantém conexão MQTT ativa
-  if (!client.connected()) {
-    reconnectMQTT();
-  }
-  client.loop();
-  
   unsigned long now = millis();
   
+  // Reconexão automática a cada 30 segundos
+  if (now - lastReconnectAttempt >= RECONNECT_INTERVAL) {
+    attemptReconnect();
+    lastReconnectAttempt = now;
+  }
+  
+  // Atualiza status das conexões
+  wifiConnected = (WiFi.status() == WL_CONNECTED);
+  mqttConnected = client.connected();
+  
+  // Mantém conexão MQTT ativa
+  if (wifiConnected && !client.connected()) {
+    reconnectMQTT();
+  }
+  if (client.connected()) {
+    client.loop();
+  }
+  
+  // Executa Blynk se WiFi estiver conectado (sem forçar reconexão)
+  if (wifiConnected) {
+    // Só tenta reconectar Blynk se realmente perdeu a conexão
+    if (!Blynk.connected()) {
+      static unsigned long lastBlynkReconnect = 0;
+      // Tenta reconectar Blynk apenas a cada 30 segundos
+      if (now - lastBlynkReconnect > 30000) {
+        Serial.println("[BLYNK] Tentativa de reconexão...");
+        Blynk.connect(1000); // Timeout de 1 segundo
+        lastBlynkReconnect = now;
+      }
+    } else {
+      Blynk.run();
+    }
+  }
+
   // Leitura dos sensores (sempre atualizada)
   float temp = dht.readTemperature() + TEMP_OFFSET; // Aplica offset de correção
   float umid = dht.readHumidity();
@@ -432,11 +770,9 @@ void loop() {
   // Tratamento de valores inválidos do DHT
   if (isnan(temp - TEMP_OFFSET)) { // Verifica se a leitura original era inválida
     temp = 25.0 + TEMP_OFFSET; // Valor padrão com offset aplicado
-    Serial.println("[WARNING] Leitura de temperatura inválida, usando valor padrão");
   }
   if (isnan(umid)) {
     umid = 50.0; // Valor padrão
-    Serial.println("[WARNING] Leitura de umidade inválida, usando valor padrão");
   }
   
   int chuvaVal = analogRead(CHUVA_PIN);
@@ -459,17 +795,17 @@ void loop() {
     lastDebug = now;
   }
   
-  // Atualização do display (1 segundo)
+  // Atualização estabilizada do display (3 segundos para evitar piscar)
   if (now - lastDisplayUpdate >= DISPLAY_UPDATE_INTERVAL) {
     // Sempre atualiza o display para garantir funcionamento
     bool shouldUpdate = needsDisplayUpdate(temp, umid, chovendo, insolacaoPercent, alertaAtivo);
     
-    // Força atualização a cada 30 segundos mesmo sem mudanças
+    // Força atualização a cada 20 segundos para garantir refresh moderado
     static unsigned long lastForceUpdate = 0;
-    if (now - lastForceUpdate > 30000) {
+    if (now - lastForceUpdate > 20000) {
       shouldUpdate = true;
       lastForceUpdate = now;
-      Serial.println("[DEBUG] Forçando atualização do display");
+      Serial.println("[DEBUG] Forçando atualização periódica do display");
     }
     
     if (shouldUpdate) {
@@ -491,15 +827,15 @@ void loop() {
     lastDisplayUpdate = now;
   }
   
-  // Controle de LEDs e buzzer (resposta imediata):
+  // Controle de LEDs e buzzer:
   if (alertaAtivo) {
     digitalWrite(LED_VERMELHO, HIGH);
     digitalWrite(LED_VERDE, LOW);
     // Buzzer sem delay bloqueante
     static unsigned long lastBeep = 0;
-    if (now - lastBeep > 2000) { // Beep a cada 2s
+    if (now - lastBeep > 2000) {  // Beep a cada 2s
       digitalWrite(BUZZER, HIGH);
-      delay(50); // Delay muito curto para beep
+      delay(50);                  // Delay muito curto para beep
       digitalWrite(BUZZER, LOW);
       lastBeep = now;
     }
@@ -514,14 +850,24 @@ void loop() {
     lastMsg = now;
     String timestamp = getTimeStamp();
 
-    // Publicações individuais MQTT
+    // Publicações individuais MQTT:
     if (!isnan(temp)) client.publish(topicTemp, String(temp).c_str());
     if (!isnan(umid)) client.publish(topicUmid, String(umid).c_str());
     client.publish(topicChuva, chovendo ? "Chovendo" : "Sem chuva");
     client.publish(topicSolar, String(insolacaoPercent, 0).c_str());
     client.publish(topicAlerta, alerta.c_str());
 
-    // Envio para ThingSpeak (apenas com valores válidos)
+    // Envio para Blynk (Virtual Pins):
+    if (wifiConnected && Blynk.connected()) {
+      Blynk.virtualWrite(V0, temp);                   // V0 = Temperatura
+      Blynk.virtualWrite(V1, umid);                   // V1 = Umidade  
+      Blynk.virtualWrite(V2, insolacaoPercent);       // V2 = Luminosidade
+      Blynk.virtualWrite(V3, chovendo ? 1 : 0);       // V3 = Chuva (0/1)
+      Blynk.virtualWrite(V4, alertaAtivo ? 1 : 0);    // V4 = Alerta (0/1)
+      Serial.println("[BLYNK] Dados enviados para Blynk");
+    }
+
+    // Envio para ThingSpeak:
     if (!isnan(temp) && !isnan(umid)) {
       String tsUrl = "/update?api_key=";
       tsUrl += writeAPIKey;
@@ -542,7 +888,7 @@ void loop() {
       }
     }
 
-    // JSON consolidado
+    // JSON consolidado:
     String payload = "{";
     payload += "\"Temperatura\": " + String(temp, 1) + ",";
     payload += "\"Umidade\": " + String(umid, 1) + ",";
@@ -555,7 +901,7 @@ void loop() {
     Serial.println(payload);
   }
   
-  // Pequeno delay para não sobrecarregar o processador
-  delay(10);
+  // Delay moderado para não sobrecarregar o processador mantendo boa responsividade
+  delay(10);  // 10ms - bom equilíbrio entre performance e estabilidade
 }
 
