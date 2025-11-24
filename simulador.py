@@ -6,8 +6,8 @@ import paho.mqtt.client as mqtt
 import json
 
 # CONFIGURACAO THINGSPEAK:
-WRITE_API_KEY = "2PI8MD4NVFEY9XSZ"                  # Chave de escrita do canal
-BASE_URL = "https://api.thingspeak.com/update.json" # Endpoint REST ThingSpeak
+WRITE_API_KEY = "2PI8MD4NVFEY9XSZ"                      # Chave de escrita do canal
+BASE_URL = "https://api.thingspeak.com/update.json"     # Endpoint REST ThingSpeak
 
 # CONFIGURACAO BLYNK:
 BLYNK_TEMPLATE_ID = "TMPL2EzjqzR7P"                     # ID do template Blynk
@@ -35,6 +35,7 @@ MQTT_TOPICS = {
     "solar": "est_01/solar",
     "chuva": "est_01/chuva",
     "alerta": "est_01/alerta",
+    "dados": "est_01/dados",
 }
 
 def build_mqtt_client() -> mqtt.Client:
@@ -208,8 +209,9 @@ def main():
             rain_state = generate_random_rain_state()
             alert_state = generate_random_temp_alert()
             
-            # PEGA A HORA VIA TIMESTAMP
+            # PEGA A HORA REAL DO SISTEMA (NÃO É ALEATÓRIO)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            timestamp_unix = str(int(datetime.now().timestamp()))
             
             # PREPARA OS DADOS PARA ENVIAR AO THINGSPEAK VIA JSON
             data = {
@@ -248,12 +250,27 @@ def main():
             # PUBLICA TOPICOS NO MQTT EXTERNO (HiveMQ demo)
             print("📡 Enviando para MQTT...")
             try:
+                # Publica tópicos individuais
                 mqtt_client.publish(MQTT_TOPICS["temp"], str(temp), qos=0, retain=False)
                 mqtt_client.publish(MQTT_TOPICS["umid"], str(hum), qos=0, retain=False)
                 mqtt_client.publish(MQTT_TOPICS["solar"], str(insol), qos=0, retain=False)
                 mqtt_client.publish(MQTT_TOPICS["chuva"], rain_state, qos=0, retain=False)
                 mqtt_client.publish(MQTT_TOPICS["alerta"], alert_state, qos=0, retain=False)
+                
+                # Cria e publica o JSON consolidado no tópico "dados"
+                dados_json = {
+                    "Temperatura": temp,
+                    "Umidade": hum,
+                    "Lux": insol,
+                    "Chuva": rain_state,
+                    "Alerta Temp.": alert_state,
+                    "Timestamp": timestamp_unix
+                }
+                dados_payload = json.dumps(dados_json)
+                mqtt_client.publish(MQTT_TOPICS["dados"], dados_payload, qos=0, retain=False)
+                
                 print("✅ MQTT: Todos os tópicos publicados com sucesso!")
+                print(f"📦 JSON: {dados_payload}")
             except Exception as e:
                 print(f"❌ MQTT: Erro na publicação: {e}")
             
