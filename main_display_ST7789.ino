@@ -81,7 +81,7 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 
 // Configuração de intervalos:
-const float TEMP_LIMITE = 30.00;
+const float TEMP_LIMITE = 28.00;
 const float TEMP_OFFSET = -2.0;
 unsigned long lastMsg = 0;
 unsigned long lastDisplayUpdate = 0;
@@ -92,6 +92,7 @@ const unsigned long MQTT_UPDATE_INTERVAL = 15000;
 float lastTemp = -999, lastUmid = -999, lastInsolacao = -999;
 bool lastChovendo = false, lastAlerta = false;
 bool forceDisplayUpdate = true;
+bool wasInAlertMode = false;  // Controle global de transição de telas
 
 // Reconexão WiFi:
 unsigned long lastReconnectAttempt = 0;
@@ -438,7 +439,13 @@ void drawNormalScreen(float temp, float umid, bool chovendo, float insolacao) {
   
   // Verifica se é necessário redesenhar a tela completa
   static bool screenInitialized = false;
-  bool needFullRedraw = !screenInitialized || forceDisplayUpdate;
+  bool needFullRedraw = !screenInitialized || forceDisplayUpdate || wasInAlertMode;
+  
+  // Se estava em modo de alerta, força redesenho completo
+  if (wasInAlertMode) {
+    screenInitialized = false;
+    wasInAlertMode = false;  // Reset global flag
+  }
   
   if (needFullRedraw) {
     // Redesenha tela completa apenas quando necessário
@@ -484,6 +491,9 @@ void drawNormalScreen(float temp, float umid, bool chovendo, float insolacao) {
 
 // Exibição alerta estabilizada:
 void drawAlertScreen(float temp, bool chovendo, float insolacao) {
+  
+  // Marca que estamos em modo de alerta (para forçar redesenho da tela normal depois)
+  wasInAlertMode = true;
   
   // Sempre redesenha tela de alerta completamente (é menos frequente)
   tft.cp437(true);
@@ -675,11 +685,19 @@ void loop() {
       lastForceUpdate = now;
     }
     
+    // Força atualização quando o estado de alerta muda (crítico para transições)
+    if (alertaAtivo != lastAlerta) {
+      shouldUpdate = true;
+      forceDisplayUpdate = true;  // Força redesenho completo na próxima chamada
+    }
+    
     if (shouldUpdate) {
       
       if (alertaAtivo) {
+        Serial.println("[DEBUG] Mudando para tela de ALERTA");
         drawAlertScreen(temp, chovendo, insolacaoPercent);
       } else {
+        Serial.println("[DEBUG] Mudando para tela NORMAL");
         drawNormalScreen(temp, umid, chovendo, insolacaoPercent);
       }
       
