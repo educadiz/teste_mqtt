@@ -6,13 +6,13 @@ import paho.mqtt.client as mqtt
 import json
 
 # CONFIGURACAO THINGSPEAK:
-WRITE_API_KEY = "2PI8MD4NVFEY9XSZ"                      # Chave de escrita do canal
+WRITE_API_KEY = "*********"                      # Chave de escrita do canal
 BASE_URL = "https://api.thingspeak.com/update.json"     # Endpoint REST ThingSpeak
 
 # CONFIGURACAO BLYNK:
-BLYNK_TEMPLATE_ID = "TMPL2EzjqzR7P"                     # ID do template Blynk
-BLYNK_TEMPLATE_NAME = "EMC01"                           # Nome do template Blynk
-BLYNK_AUTH_TOKEN = "y0YIz5He8zrIW1BF-0eHwQAN7VdxJkAK"   # Token de autenticação Blynk
+BLYNK_TEMPLATE_ID = "******"                     # ID do template Blynk
+BLYNK_TEMPLATE_NAME = "******"                           # Nome do template Blynk
+BLYNK_AUTH_TOKEN = "********"   # Token de autenticação Blynk
 BLYNK_BASE_URL = "https://blynk.cloud/external/api"     # URL oficial de produção
 
 # VIRTUAL PINS BLYNK:
@@ -30,12 +30,12 @@ BLYNK_PINS = {
 MQTT_BROKER_HOST = "broker.hivemq.com"  
 MQTT_BROKER_PORT = 1883
 MQTT_TOPICS = {
-    "temp": "est_01/temp",
-    "umid": "est_01/umid",
-    "solar": "est_01/solar",
-    "chuva": "est_01/chuva",
-    "alerta": "est_01/alerta",
-    "dados": "est_01/dados",
+    "temp": "exemplo/temp",
+    "umid": "exemplo/umid",
+    "solar": "exemplo/solar",
+    "chuva": "exemplo/chuva",
+    "alerta": "exemplo/alerta",
+    "dados": "exemplo/dados",
 }
 
 def build_mqtt_client() -> mqtt.Client:
