@@ -5,6 +5,8 @@
   definido na variavel mqtt.server.
   Observe os dados relativos à conexão após linha de comentários
   do thinkspeak.
+
+  Os dados sensíveis estão marcados com "*"
 */
 
 // Bibliotecas:
@@ -34,26 +36,26 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 U8G2_FOR_ADAFRUIT_GFX u8g2Fonts;
 
 // WiFi: Credenciais (Primária e Backup)
-const char* ssid_primary = "ANDROMEDA";      // SSID principal
-const char* pass_primary = "22602260";       // Senha principal
-const char* ssid_backup  = "spectrum_01";    // SSID backup
-const char* pass_backup  = "22602260";       // Senha backup
+const char* ssid_primary = "***";      // SSID principal
+const char* pass_primary = "***";       // Senha principal
+const char* ssid_backup  = "***";    // SSID backup
+const char* pass_backup  = "***";       // Senha backup
 
 // Dados do MQTT: Aqui vão os tópicos via mqtt tradicional para o broker HIVEMQ
 const char* mqtt_server = "broker.hivemq.com";
 const int mqtt_port = 1883;
-const char* clientID = "cangaco_01";
-const char* topicChuva = "est_01/chuva";
-const char* topicTemp = "est_01/temp";
-const char* topicUmid = "est_01/umid";
-const char* topicSolar = "est_01/solar";
-const char* topicAlerta = "est_01/alerta";
-const char* topicDados = "est_01/dados";
+const char* clientID = "seuProjeto";
+const char* topicChuva = "exemplo/chuva";
+const char* topicTemp = "exemplo/temp";
+const char* topicUmid = "exemplo/umid";
+const char* topicSolar = "exemplo/solar";
+const char* topicAlerta = "exemplo/alerta";
+const char* topicDados = "exemplo/dados";
 
 // Configuração API ThingSpeak
 const char* ts_server = "api.thingspeak.com";
-const char* writeAPIKey = "2PI8MD4NVFEY9XSZ";
-const unsigned long channelID = 3140279;
+const char* writeAPIKey = "*****"; // Thinkspeak API Write Key
+const unsigned long channelID = **** ; // Thinkspeak Channel ID Number
 
 WiFiClient espClient;
 PubSubClient client(espClient);
