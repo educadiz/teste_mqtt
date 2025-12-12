@@ -7,12 +7,15 @@
   - DHT sensor library
   - PubSubClient
   - Blynk
+  Este código foi adaptado para uso no ESP32 com display ST7789 240x320 pixels
+  Atente-se às informações sensíveis como dados de API, Chaves, Senhas e coisa do tipo.
+  Os dados marcados com "*" são dados que você deve preencher conforme às suas informações
 */
 
 // Configuração Blynk:
-#define BLYNK_TEMPLATE_ID "TMPL2EzjqzR7P"
-#define BLYNK_TEMPLATE_NAME "EMC01"
-#define BLYNK_AUTH_TOKEN "y0YIz5He8zrIW1BF-0eHwQAN7VdxJkAK"
+#define BLYNK_TEMPLATE_ID "****" 
+#define BLYNK_TEMPLATE_NAME "****"
+#define BLYNK_AUTH_TOKEN "****"
 #define BLYNK_PRINT Serial
 
 // Bibliotecas:
@@ -56,26 +59,26 @@ DHT dht(DHTPIN, DHTTYPE);
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 
 // WiFi: Credenciais (Primária e Backup)
-const char* ssid_primary = "ANDROMEDA";      // SSID principal
-const char* pass_primary = "22602260";       // Senha principal
-const char* ssid_backup  = "spectrum_01";    // SSID backup
-const char* pass_backup  = "22602260";       // Senha backup
+const char* ssid_primary = "****";      // SSID principal
+const char* pass_primary = "****";       // Senha principal
+const char* ssid_backup  = "****";    // SSID backup
+const char* pass_backup  = "****";       // Senha backup
 
 // Dados do MQTT:
 const char* mqtt_server = "broker.hivemq.com";
 const int mqtt_port = 1883;
-const char* clientID = "cangaco_01";
-const char* topicChuva = "est_01/chuva";
-const char* topicTemp = "est_01/temp";
-const char* topicUmid = "est_01/umid";
-const char* topicSolar = "est_01/solar";
-const char* topicAlerta = "est_01/alerta";
-const char* topicDados = "est_01/dados";
+const char* clientID = "seuProjeto";
+const char* topicChuva = "exemplo/chuva";
+const char* topicTemp = "exemplo/temp";
+const char* topicUmid = "exemplo/umid";
+const char* topicSolar = "exemplo/solar";
+const char* topicAlerta = "exemplo/alerta";
+const char* topicDados = "exemplo/dados";
 
 // Configuração API ThingSpeak:
 const char* ts_server = "api.thingspeak.com";
-const char* writeAPIKey = "2PI8MD4NVFEY9XSZ";
-const unsigned long channelID = 3140279;
+const char* writeAPIKey = "*****"; // write APi Key Thingspeak
+const unsigned long channelID = ***** ;      // Thingspeak Channel ID number
 
 WiFiClient espClient;
 PubSubClient client(espClient);
