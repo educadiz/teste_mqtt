@@ -5,18 +5,18 @@ from datetime import datetime
 import paho.mqtt.client as mqtt
 
 # CONFIGURACAO THINGSPEAK
-WRITE_API_KEY = "2PI8MD4NVFEY9XSZ"
+WRITE_API_KEY = "*******" # INSIRA A CHAVE DA API WRITE THINGSPEAK AQUI
 BASE_URL = "https://api.thingspeak.com/update.json"
 
 # CONFIGURACAO MQTT EXTERNO: BROKER / PORTA TCP / TOPICOS
 MQTT_BROKER_HOST = "broker.hivemq.com"  
 MQTT_BROKER_PORT = 1883
 MQTT_TOPICS = {
-    "temp": "est_01/temp",
-    "umid": "est_01/umid",
-    "solar": "est_01/solar",
-    "chuva": "est_01/chuva",
-    "alerta": "est_01/alerta",
+    "temp": "EXEMPLO/temp",
+    "umid": "EXEMPLO/umid",
+    "solar": "EXEMPLO/solar",
+    "chuva": "EXEMPLO/chuva",
+    "alerta": "EXEMPLO/alerta",
 }
 
 def build_mqtt_client() -> mqtt.Client:
