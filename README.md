@@ -1,4 +1,6 @@
-# Teste MQTT - Simulador de Estação Meteorológica
+# Simulador de dados MQTT
+# >> Simulador de telemetria para estação meteorológica
+#
 
 Simulador que gera dados aleatórios de uma estação meteorológica e envia para múltiplas plataformas IoT:
 - **ThingSpeak** (via REST API)
